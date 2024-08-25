@@ -147,16 +147,16 @@ class Generator:
     @staticmethod
     def fade(t: float) -> float:
         """
-        Applies an interpolation function to smooth the noise curve.
+            Applies an interpolation function to smooth the noise curve
 
-        Parameters:
-            t (float): The input value to be smoothed.
+            Parameters:
+                t (float): The input value to be smoothed
 
-        Returns:
-            float: The smoothed value.
+            Returns:
+                float: The smoothed value
         """
 
-        return t * t * t * (t * (t * 6 - 15) + 10)
+        return (t**3) * (t * (t * 6 - 15) + 10)
 
 
     @staticmethod

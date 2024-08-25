@@ -12,8 +12,6 @@ SCREEN_HALF_H: int = SCREEN_FULL_H // 2
 SCREEN_SIZE_T: tuple = (SCREEN_FULL_W, SCREEN_FULL_H)
 SCREEN_SIZE_I: int = (SCREEN_FULL_W * SCREEN_FULL_H)
 
-SCREEN_FLAGS: int = (pygame.DOUBLEBUF)
-
 RENDER_RANGE_V: int = 2
 RENDER_RANGE_H: int = RENDER_RANGE_V * 1
 
@@ -25,8 +23,8 @@ CHUNK_SIZE: int = 8
     The higher it is, the smaller the terrain will look, and if
     it's lower, the terrain will appear larger and more expansive.
 """
-TERRAIN_SCALE: float = 0.002
-TERRAIN_PERSISTENCE: float = 0.5
+TERRAIN_SCALE: float = 0.0018
+TERRAIN_PERSISTENCE: float = 0.46
 TERRAIN_OCTAVES: int = 8
 
 

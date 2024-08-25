@@ -1,15 +1,17 @@
 import gzip
 import pickle
-from random import choice, randint, seed
 import sys
+from random import choice, randint, seed
 from time import time, time_ns
+from typing import List
+
+import pygame
 
 from source.globals import *
 from source.noise import Generator
-from source.screen import Color
+from source.screen import Color, TitleMenu
 from source.sound import Sound
-
-import pygame
+from source.sprite import SpritePool
 
 # Pygame initialization
 pygame.init()
@@ -22,11 +24,20 @@ font = pygame.font.Font("./assets/terrain.ttf", 16)
 text = pygame.font.Font("./assets/terrain.ttf", 16)
 
 # Initialize the Pygame screen with predefined width and height and set window title
-screen = pygame.display.set_mode(SCREEN_SIZE_T, SCREEN_FLAGS)
+screen = pygame.display.set_mode(SCREEN_SIZE_T)
 screen.set_alpha(None)
+
 overlay = pygame.image.load('./assets/overlay.png').convert_alpha()
+winicon = pygame.image.load('./assets/icon.png').convert_alpha()
+
 pygame.event.set_allowed([pygame.QUIT, pygame.KEYDOWN, pygame.TEXTINPUT])
-pygame.display.set_caption("Minicraft")
+pygame.display.set_caption("Minicraft Potato Edition")
+pygame.display.set_icon(winicon)
+
+clock = pygame.time.Clock()
+
+title_menu: TitleMenu = TitleMenu(screen, text)
+sprite_pool: SpritePool = SpritePool(font)
 
 
 class Tile:
@@ -41,16 +52,15 @@ class Tile:
         - `bc           (tuple or None)`: A tuple representing the RGB values of the sprite's background color.
         - `solid        (bool)`: A flag indicating whether the tile is solid. If `True`, the player cant walk on it.
         - `replacement  (bool)`: The replacement tile ID.
-        - `value        (float)`: The noise value corresponding to the tile generation.
         - `health       (int)`: The initial health value of the tile.
     """
 
-    def __init__(self, ID: int, chars: list, fc, bc, solid: bool, replacement: int | None, health: int | None):
+    def __init__(self, ID: int, chars: list[str], fc, bc, solid: bool, replacement: int | None, health: int | None):
         self.ID = ID
         self.chars = chars
         self.char = choice(chars)
         self.foreground = fc
-        self.background = self._create_bcolor(bc)
+        self.background = self._set_backcolor(bc)
         self.solid = solid
         self.replacement = replacement
         self.health = health
@@ -77,27 +87,29 @@ class Tile:
 
         self.__dict__.update(state)
         if self.sprite is None:
-            self.sprite = self._create_sprite()
+            self.sprite = self._get_sprite()
 
     ### Tile private
 
-    def _create_bcolor(self, bc):
-        random_tone = randint(2, 4)
-        return tuple(char // random_tone for char in bc) if bc is not None else bc
+    def _set_backcolor(self, bc):
+        rand_num = randint(2, 3)
+        return tuple(char // rand_num  for char in bc) if bc is not None else bc
 
-    def _create_sprite(self):
-        return SpritePool.get(self.char, self.foreground, self.background)
+    def _get_sprite(self):
+        return sprite_pool.get(self.char, self.foreground, self.background)
 
     ### Tile public
 
     def render(self) -> pygame.Surface:
         if self.sprite is None:
-            self.sprite = self._create_sprite()
+            self.sprite = self._get_sprite()
 
         return self.sprite
 
     def unrender(self) -> None:
+        """ Unrenders (deletes) the tile sprite, freeing up memory """
         if self.sprite is not None:
+            del self.sprite
             self.sprite = None
 
     def hurt(self, x: int, y: int, damage: int) -> None:
@@ -109,7 +121,9 @@ class Tile:
                 self.unrender()
 
     def clone(self):
+        """ Returns a copy of the tile instance """
         return Tile(self.ID, self.chars, self.foreground, self.background, self.solid, self.replacement, self.health)
+
 
 tiles = {
     # NAME               ID,   CHARS,                                   FOREGROUND,      BACKGROUND,      SOLID?,  REPLACEMENT, HEALTH
@@ -130,51 +144,11 @@ tiles = {
     "pine tree":     Tile(12,  ['Γ♠'],                                  (000, 232, 000), (200, 200, 200), True,    7,           32   ),
 
     "cliff":         Tile(13,  ['n∩', '∩n', 'n⌂', '⌂n'],                (121, 121, 121), (111, 111, 111), True,    6,           32   ),
-
     "mountain":      Tile(14,  ['≈~', '~≈'],                            ( 50,  50,  50), ( 50,  50,  50), True,    13,          48   ),
+
     "snow":          Tile(15,  ['.ⁿ', 'ⁿ.'],                            (220, 220, 220), (200, 200, 200), False,   6,           1    ),
-    "cold grass":    Tile(16,  ['"ⁿ', 'ⁿ"'],                            (238, 238, 238), (238, 238, 238), False,   8,           2    )
+    "frost":         Tile(16,  ['"ⁿ', 'ⁿ"'],                            (238, 238, 238), (238, 238, 238), False,   8,           2    )
 }
-
-class SpritePool:
-    pool: dict = {}
-
-    @staticmethod
-    def initialize():
-        print("\n## Initializing Sprite pool cache! ...")
-
-        for name, tile in tiles.items():
-            print(f"-> Building pool for '{name}' tile ...")
-
-            chars = tile.chars
-            foreground = tile.foreground
-            background = tile.background
-
-            for char in chars:
-                for i in range(2, 4):
-                    bg = tuple(col // i for col in background) if background is not None else background
-
-                    key = (char, foreground, bg)
-                    sprite = font.render(char, False, foreground, bg).convert()
-                    SpritePool.pool[key] = sprite
-
-        print("\n## Initilialized Sprite pool cache!")
-
-
-    @staticmethod
-    def get(char, foreground, background):
-        key = (char, foreground, background)
-
-        # If the sprite already exists in the pool, we reuse it
-        if key in SpritePool.pool:
-            return SpritePool.pool[key]
-
-        # If not, we create a new sprite and add it to the pool
-        sprite = font.render(char, False, foreground, background).convert()
-        SpritePool.pool[key] = sprite
-        return sprite
-
-
 
 class World:
 
@@ -185,6 +159,8 @@ class World:
     # Storage for terrain and chunks
     terrain: dict = {}
     spawn: tuple = (0, 0)
+
+    initialized = False
 
     # Method to initialize the world
     @staticmethod
@@ -206,6 +182,10 @@ class World:
             for chunk_y in range(yp - area, yp + area):
                 World.generate_chunk(chunk_x, chunk_y)
 
+        Player.x, Player.y = World.spawn
+
+        World.initialized = True
+
 
     @staticmethod
     def generate_chunk(x: int, y: int) -> None:
@@ -216,6 +196,9 @@ class World:
         chunk = [
             [tiles["empty"].clone()] * CHUNK_SIZE for _ in range(CHUNK_SIZE)
         ]
+
+        # IMPORTANT:
+        seed(x + y)
 
         for h in range(CHUNK_SIZE):
             wy = y * CHUNK_SIZE + h
@@ -252,7 +235,7 @@ class World:
                         if humidity < 0.4:
                             # Tundra / Snowlands
                             if (randint(0, 8) <= 4):
-                                current_tile = tiles["cold grass"].clone()
+                                current_tile = tiles["frost"].clone()
                             else:
                                 current_tile = tiles["snow"].clone()
 
@@ -261,7 +244,7 @@ class World:
                             if (elevation > 0.75) and (randint(0, 8) <= 4):
                                 current_tile = tiles["pine tree"].clone()
                             else:
-                                current_tile = tiles["cold grass"].clone()
+                                current_tile = tiles["frost"].clone()
 
 
                     elif temperature < 0.5:  # Cool regions
@@ -273,7 +256,7 @@ class World:
 
                         else:
                             if (randint(0, 8) <= 4):
-                                current_tile = tiles["cold grass"].clone()  # Taiga
+                                current_tile = tiles["frost"].clone()  # Taiga
                             else:
                                 current_tile = tiles["snow"].clone()
 
@@ -323,7 +306,7 @@ class World:
                 chunk[h][w] = current_tile
 
                 # Check for spawnpoint
-                if World.spawn[0] == 0 and current_tile.ID in {tiles["grass"].ID, tiles["sand"].ID}:
+                if World.spawn[0] == 0 and current_tile.ID in { tiles["grass"].ID, tiles["sand"].ID }:
                     World.spawn = (wx, wy)
 
         World.terrain[(x, y)] = chunk
@@ -489,65 +472,106 @@ class World:
 
     @staticmethod
     def tick() -> None:
-        for x in range(Player.cx - 3, Player.cx + 4):
-            for y in range(Player.cy - 3, Player.cy + 4):
-                World.update_chunk(x, y)
+        """ Update chunks around the player's position """
+
+        # Define the range of chunks to update based on the player's position
+        x_range = range(Player.cx - 3, Player.cx + 4)
+        y_range = range(Player.cy - 3, Player.cy + 4)
+
+        # Iterate through the defined range of chunks
+        for chunk_x in x_range:
+            for chunk_y in y_range:
+                # Update each chunk within the range
+                World.update_chunk(chunk_x, chunk_y)
 
 
     @staticmethod
-    def update_chunk(chunk_x: int, chunk_y: int) -> None:
-        if Updater.time % 32 == 0 and randint(0, 16) == 8:
-            World.update_tiles(chunk_x, chunk_y, [tiles["grass"]], tiles["dirt"], tiles["grass"])
+    def update_chunk(cx: int, cy: int) -> None:
 
+        # Check if it's time to spread grass
+        if (Updater.time % 32 == 0):
+            if (randint(0, 16) == 8):
+                World.update_tiles(
+                    cx, cy,              # The chunk to update
+                    tiles["dirt"],       # The tile to replace
+                    tiles["grass"],      # The tile to replace with
+
+                    # Tiles that can influence the replacement
+                    [
+                        tiles["grass"],
+                        tiles["tall grass"]
+                    ]
+                )
+
+        # Check if it's time to spread water
         if Updater.time % 8 == 0:
-            World.update_tiles(chunk_x, chunk_y,
+            World.update_tiles(
+                cx, cy,              # The chunk to update
+                tiles["hole"],       # The tile to replace
+                tiles["river"],      # The tile to replace with
+
+                # Tiles that can influence the replacement
                 [
-                    tiles["ocean"], tiles["sea"], tiles["river"]
-                ],
-                tiles["hole"],
-                tiles["river"]
+                    tiles["ocean"],
+                    tiles["sea"],
+                    tiles["river"]
+                ]
             )
 
 
     @staticmethod
-    def update_tiles(chunk_x: int, chunk_y: int, current_tiles: list, target_tile: Tile, replace_tile: Tile) -> None:
-        current_chunk: list = World.terrain.get((chunk_x, chunk_y))
+    def update_tiles(cx: int, cy: int, tile_target: Tile, replacement: Tile, influence_tiles: List[Tile]) -> None:
+        this_chunk = World.terrain.get((cx, cy))
 
-        if current_chunk:
-            updated_chunk: list = World.update_tile(current_chunk, current_tiles, target_tile, replace_tile, chunk_x, chunk_y)
-            if updated_chunk != current_chunk:
-                World.terrain[(chunk_x, chunk_y)] = updated_chunk
+        if this_chunk:
+            target = tile_target.ID
+            replace = replacement.clone()
+
+            # Create a copy of the chunk
+            temp_chunk = [
+                row[:] for row in this_chunk
+            ]
+
+            # Iterate through each tile in the chunk
+            for yt in range(CHUNK_SIZE):
+                for xt in range(CHUNK_SIZE):
+
+                    # Check if the current tile matches the target tile
+                    if this_chunk[yt][xt].ID == target:
+                        # If influence_tiles is provided, check surrounding tiles
+                        if World.tile_around(influence_tiles, xt, yt, cx, cy):
+                            # Replace the target tile with the new tile
+                            temp_chunk[yt][xt] = replace
+
+            # Update the terrain with the modified chunk if changes were made
+            if temp_chunk != this_chunk:
+                World.terrain[(cx, cy)] = temp_chunk
 
 
     @staticmethod
-    def update_tile(current_chunk, current_tiles: list, target_tile: Tile, replace_tile: Tile, chunk_x: int, chunk_y: int) -> list:
-        temp_chunk = [row[:] for row in current_chunk]
+    def tile_around(tiles_around: List[Tile], x: int, y: int, chunk_x: int, chunk_y: int) -> bool:
+        """ Check if any of the specified tiles are around the given coordinates """
 
-        for y in range(CHUNK_SIZE):
-            for x in range(CHUNK_SIZE):
-                closest_tile: Tile = current_chunk[y][x]
-                if closest_tile.ID == target_tile.ID and World.tile_around(current_tiles, x, y, chunk_x, chunk_y):
-                    temp_chunk[y][x] = replace_tile.clone()
+        # Define the directions to check around the given coordinates
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
-        return temp_chunk
-
-
-    @staticmethod
-    def tile_around(tiles_around: list, x: int, y: int, chunk_x: int, chunk_y: int) -> bool:
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        # Check each direction for matching tiles
+        for dy, dx in directions:
             new_y = (y + dy) % CHUNK_SIZE
             new_x = (x + dx) % CHUNK_SIZE
-            new_chunk_x: int = chunk_x + (x + dx) // CHUNK_SIZE
-            new_chunk_y: int = chunk_y + (y + dy) // CHUNK_SIZE
+            new_chunk_x = chunk_x + (x + dx) // CHUNK_SIZE
+            new_chunk_y = chunk_y + (y + dy) // CHUNK_SIZE
 
-            around_chunk: list = World.terrain.get((new_chunk_x, new_chunk_y))
+            # Retrieve the adjacent chunk from the terrain
+            around_chunk = World.terrain.get((new_chunk_x, new_chunk_y))
 
-            if around_chunk is not None:
-                around_tile: Tile = around_chunk[new_y][new_x]
-                if around_tile.ID in [tile.ID for tile in tiles_around]:
+            # Check if any adjacent tile matches the specified tile types
+            if around_chunk:
+                if around_chunk[new_y][new_x].ID in [tile.ID for tile in tiles_around]:
                     return True
 
         return False
+
 
 
 class Player:
@@ -569,7 +593,6 @@ class Player:
     facing = "w"
 
     cursor_blink: bool = False
-
 
     @staticmethod
     def is_swimming() -> bool:
@@ -651,25 +674,25 @@ class Player:
         Player.cy = Player.y // CHUNK_SIZE
 
 
-        if Updater.time % 15 == 0:
+        if (Updater.time % 15 == 0):
             # Decrease stamina if we are swiming
-            if Player.energy > 0 and Player.is_swimming():
+            if( Player.energy > 0) and Player.is_swimming():
                 Player.energy = max(0, Player.energy - 1)
 
             # Increase health if stamina is higher than half
-            if Player.energy > 10:
+            if (Player.energy > 10):
                 Player.health = min(PLAYER_MAX_HEALTH, Player.health + 1)
 
             Player.cursor_blink = not Player.cursor_blink
 
 
-        if Updater.time % 30 == 0 and Player.energy < 1:
+        if (Updater.time % 30 == 0) and (Player.energy < 1):
             if Player.is_swimming():
                 Player.health = max(0, Player.health - 1)
                 Sound.play("playerHurt")
 
 
-        if Updater.time % 3 == 0 and Player.energy < PLAYER_MAX_ENERGY:
+        if (Updater.time % 3 == 0) and (Player.energy < PLAYER_MAX_ENERGY):
             if not Player.is_swimming():
                 Player.energy = min(PLAYER_MAX_ENERGY, Player.energy + 1)
 
@@ -677,11 +700,15 @@ class Player:
 class Updater:
     time = 0
     timer = 4
-    clock = pygame.time.Clock()
 
 
     @staticmethod
     def update() -> None:
+
+        if not World.initialized:
+            title_menu.tick(World)
+            return
+
         # This function counts the elapsed time (in frames) and then it moves
         # the player or breaks the tile in front of the player if certain keys are being pressed
         # In addition to that, it also updates the chunks in the world.
@@ -750,107 +777,6 @@ class Screen:
     HEART_FULL = text.render("♥", False, Color.RED).convert()
     STAMINA_NONE = text.render("○", False, (16, 16, 16)).convert()
     STAMINA_FULL = text.render("●", False, Color.YELLOW).convert()
-
-
-    @staticmethod
-    def title() -> None:
-        # Screen initialization function. Prompts a textbox for the user to enter seed value
-        # for world generation.
-        seed_input = ""
-        seed_text = text.render("Enter World Seed:", False, Color.CYAN, Color.BLACK).convert()
-
-        pygame.mixer.music.load('./assets/sounds/titleTheme.ogg')
-        pygame.mixer.music.play(-1, fade_ms = 4000)
-
-        # Initialize color variables for the title
-        color_increment = 2
-        cian_value = 130
-        cursor_visible = True
-        cursor_timer = 0
-
-        title_text = [
-            "      ███╗   ███╗ ██╗ ███╗   ██╗ ██╗  ██████╗ ██████╗   █████╗  ███████╗ ████████╗  ",
-            "     ████╗ ████║ ██║ ████╗  ██║ ██║ ██╔════╝ ██╔══██╗ ██╔══██╗ ██╔════╝ ╚══██╔══╝   ",
-            "    ██╔████╔██║ ██║ ██╔██╗ ██║ ██║ ██║      ██████╔╝ ███████║ █████╗      ██║       ",
-            "   ██║ ██╔╝██║ ██║ ██║ ██╗██║ ██║ ██║      ██╔══██╗ ██╔══██║ ██╔══╝      ██║        ",
-            "  ██║  ╚╝ ██║ ██║ ██║  ████║ ██║  ██████╗ ██║  ██║ ██║  ██║ ██║         ██║         ",
-            "  ╚═╝     ╚═╝ ╚═╝ ╚═╝  ╚═══╝ ╚═╝  ╚═════╝ ╚═╝  ╚═╝ ╚═╝  ╚═╝ ╚═╝         ╚═╝         ",
-            "                                 ‟ POTATO EDITION ”                                 "
-        ]
-
-        title_text = [line.replace("█", symbol) for line, symbol in zip(title_text, ["░", "▒", "▒", "▓", "▓", "█", " "])]
-
-        y = 16 * 7
-        line_height = 16
-
-        seed_input_rect = pygame.Rect((SCREEN_HALF_W - 136), (SCREEN_HALF_H + 48), 272, 40)
-
-        # Start text input
-        pygame.key.start_text_input()
-        pygame.key.set_text_input_rect(seed_input_rect)
-
-        running = True
-        while running:
-            screen.fill((0, 0, 0))
-
-            for line in title_text:
-                title_surface = text.render(line, False, (0, cian_value, cian_value), (0, 0, 0)).convert()
-                title_rect = title_surface.get_rect(center = (SCREEN_HALF_W, y))
-                screen.blit(title_surface, title_rect)
-                y += line_height
-
-            y = 16 * 7
-
-            # Update cian value for the blinking effect
-            cian_value += color_increment
-            if cian_value in (250, 128):
-                color_increment = -color_increment
-
-            cursor_timer += 1
-            if cursor_timer % 8 == 0:
-                cursor_visible = not cursor_visible
-
-            seed_rect = seed_text.get_rect(center = (SCREEN_HALF_W, (SCREEN_HALF_H + 32)))
-            screen.blit(seed_text, seed_rect)
-
-            pygame.draw.rect(screen, Color.CYAN, seed_input_rect, 1)
-
-            # Render and display input text with cursor
-            seed_input_with_cursor = seed_input + ("█" if cursor_visible else " ")
-            input_text = text.render(seed_input_with_cursor, True, (128, 128, 128), Color.BLACK).convert()
-            input_rect = input_text.get_rect(center=seed_input_rect.center)
-            screen.blit(input_text, input_rect)
-
-            pygame.display.update()
-            Updater.clock.tick(30)
-
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                    pygame.quit()
-                    pygame.key.stop_text_input()
-                elif event.type == pygame.TEXTINPUT:
-                    if len(seed_input) < 32:
-                        seed_input += event.text
-                        Sound.play("typingSound")
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_RETURN:
-                        if len(seed_input) == 0:
-                            world_seed = randint(-(2**19937-1), 2**19937-1)
-                        else:
-                            world_seed = seed_input
-
-                        Sound.play("confirmSound")
-                        pygame.mixer.music.fadeout(2000)
-                        pygame.mixer.music.unload()
-                        pygame.key.stop_text_input()
-                        screen.fill(0)
-                        pygame.display.update()
-                        World.initialize(world_seed, 3)
-                        Player.x, Player.y = World.spawn
-                        running = False
-                    elif event.key == pygame.K_BACKSPACE:
-                        seed_input = seed_input[:-1]
 
 
     @staticmethod
@@ -955,16 +881,16 @@ class Saveload:
 
         World.terrain = world_data['Terrain']
 
+        World.initialized = True
+
 
 def main() -> None:
-
-    SpritePool.initialize()
 
     try:
         Saveload.load_world()
         Sound.play("eventSound")
     except FileNotFoundError:
-        Screen.title()
+        World.initialized = False
 
     last_time = time_ns()
     unprocessed = 0
@@ -984,19 +910,32 @@ def main() -> None:
 
         while unprocessed >= 1:
             ticks += 1
-            Updater.time += 1
+
+            if (World.initialized):
+                Updater.time += 1
+
             Updater.update()
             unprocessed -= 1
             should_render = True
 
-        Updater.clock.tick(FRAMES_PER_SEC)
+        clock.tick(FRAMES_PER_SEC)
 
         if should_render:
-            Screen.update()
+            if (World.initialized):
+                Screen.update()
+            else:
+                title_menu.render()
 
         if time() - last_timer > 1:
             last_timer += 1
-            print(f"- FPS: {Updater.clock.get_fps():.1f} ({ticks} TPS) ({World.daytime()} daytime) ({World.daylight()} daylight)")
+
+            print(
+                f"- FPS: {clock.get_fps():.1f} "
+                f"({ticks} TPS) "
+            #    f"({World.daytime()} daytime) "
+            #    f"({World.daylight()} daylight)"
+            )
+
             ticks = 0
 
     pygame.quit()
