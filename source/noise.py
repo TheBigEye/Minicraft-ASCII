@@ -23,7 +23,7 @@ class Generator:
         total: float = 0
         frequency: float = 2.18  # Initial frequency
         amplitude: float = 1.00  # Initial amplitude
-        max_value: float = 0  # Used for normalizing the result
+        max_value: float = 0  # Used for normalizing result to 0.0 - 1.0
 
         # Sum the noise contributions for each octave
         for _ in range(octaves):
@@ -34,6 +34,7 @@ class Generator:
 
         # Normalize the result to be within the range [-1, 1]
         return total / max_value
+
 
     @staticmethod
     def humidity(p: list, x: float, y: float, persistence: float, octaves: int) -> float:
@@ -156,7 +157,7 @@ class Generator:
                 float: The smoothed value
         """
 
-        return (t**3) * (t * (t * 6 - 15) + 10)
+        return t * t * t * (t * (t * 6 - 15) + 10)
 
 
     @staticmethod

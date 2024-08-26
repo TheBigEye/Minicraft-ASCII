@@ -55,62 +55,28 @@ class Tile:
         - `health       (int)`: The initial health value of the tile.
     """
 
-    def __init__(self, ID: int, chars: list[str], fc, bc, solid: bool, replacement: int | None, health: int | None):
-        self.ID = ID
+    def __init__(self, id: int, chars: list[str], fc, bc, solid: bool, replacement: int | None, health: int | None):
+        self.id = id
         self.chars = chars
         self.char = choice(chars)
         self.foreground = fc
-        self.background = self._set_backcolor(bc)
+        self.background = bc
         self.solid = solid
         self.replacement = replacement
         self.health = health
 
-        self.sprite = None
+        self.sprite = self.make_sprite()
 
-    ### Pickle trick!
-
-    def __getstate__(self):
-        # So we save the world tiles directly as objects, because we use pickle we can't
-        # save the sprites as they are part of Pygame. But exist a little trick, so what
-        # we do is exclude them using a automatic method and set them to None, so we can
-        # save the tile now!
-
-        state = self.__dict__.copy()
-        state['sprite'] = None
-        return state
-
-    def __setstate__(self, state):
-        # When we load the world, our class has the prites as None, so we need to recreate
-        # them again, which is only done once and saves a lot of optimization
-
-        # Which also significantly reduces memory usage.
-
-        self.__dict__.update(state)
-        if self.sprite is None:
-            self.sprite = self._get_sprite()
-
-    ### Tile private
-
-    def _set_backcolor(self, bc):
+    def make_color(self, bc):
         rand_num = randint(2, 3)
         return tuple(char // rand_num  for char in bc) if bc is not None else bc
 
-    def _get_sprite(self):
+    def make_sprite(self):
+        self.background = self.make_color(self.background)
         return sprite_pool.get(self.char, self.foreground, self.background)
 
-    ### Tile public
-
     def render(self) -> pygame.Surface:
-        if self.sprite is None:
-            self.sprite = self._get_sprite()
-
         return self.sprite
-
-    def unrender(self) -> None:
-        """ Unrenders (deletes) the tile sprite, freeing up memory """
-        if self.sprite is not None:
-            del self.sprite
-            self.sprite = None
 
     def hurt(self, x: int, y: int, damage: int) -> None:
         if self.health is not None:
@@ -118,11 +84,10 @@ class Tile:
             Sound.play("genericHurt")
             if (self.health <= 0) and (self.replacement is not None):
                 World.set_tile_id(x, y, self.replacement)
-                self.unrender()
 
     def clone(self):
         """ Returns a copy of the tile instance """
-        return Tile(self.ID, self.chars, self.foreground, self.background, self.solid, self.replacement, self.health)
+        return Tile(self.id, self.chars, self.foreground, self.background, self.solid, self.replacement, self.health)
 
 
 tiles = {
@@ -306,7 +271,7 @@ class World:
                 chunk[h][w] = current_tile
 
                 # Check for spawnpoint
-                if World.spawn[0] == 0 and current_tile.ID in { tiles["grass"].ID, tiles["sand"].ID }:
+                if World.spawn[0] == 0 and current_tile.id in { tiles["grass"].id, tiles["sand"].id }:
                     World.spawn = (wx, wy)
 
         World.terrain[(x, y)] = chunk
@@ -362,7 +327,7 @@ class World:
         lx = x % CHUNK_SIZE
 
         for name in tiles:
-            if tiles[name].ID == tile:
+            if tiles[name].id == tile:
                 World.terrain[(cx, cy)][ly][lx] = tiles[name].clone()
 
 
@@ -386,7 +351,7 @@ class World:
         elif (time < 16000):
             return 255
         elif (time < 18000):
-            return int(255 - (((time - 16000) / 2000) * 23))
+            return int(255 - (((time - 16000) / 2000) * 223))
         else:
             return 32
 
@@ -524,7 +489,7 @@ class World:
         this_chunk = World.terrain.get((cx, cy))
 
         if this_chunk:
-            target = tile_target.ID
+            target = tile_target.id
             replace = replacement.clone()
 
             # Create a copy of the chunk
@@ -537,7 +502,7 @@ class World:
                 for xt in range(CHUNK_SIZE):
 
                     # Check if the current tile matches the target tile
-                    if this_chunk[yt][xt].ID == target:
+                    if this_chunk[yt][xt].id == target:
                         # If influence_tiles is provided, check surrounding tiles
                         if World.tile_around(influence_tiles, xt, yt, cx, cy):
                             # Replace the target tile with the new tile
@@ -567,7 +532,7 @@ class World:
 
             # Check if any adjacent tile matches the specified tile types
             if around_chunk:
-                if around_chunk[new_y][new_x].ID in [tile.ID for tile in tiles_around]:
+                if around_chunk[new_y][new_x].id in [tile.id for tile in tiles_around]:
                     return True
 
         return False
@@ -597,8 +562,8 @@ class Player:
     @staticmethod
     def is_swimming() -> bool:
         # Check if the player is swimming (in water)
-        current_tile = World.get_tile(Player.x, Player.y).ID
-        return current_tile in (tiles["ocean"].ID, tiles["sea"].ID, tiles["river"].ID)
+        current_tile = World.get_tile(Player.x, Player.y).id
+        return current_tile in (tiles["ocean"].id, tiles["sea"].id, tiles["river"].id)
 
 
     @staticmethod
@@ -832,14 +797,30 @@ class Screen:
 
 class Saveload:
 
-    # TODO: split the save file in two prts/files, world.dat (world seed, player stuff, and config)
-    # and world.sav (world saved chunks and data). So, if the player deletes
-    # world.sav but world.dat is present, so the world will be generated again
+    # NOTE: basically, what we're doing is saving a list of IDs for each tile
+    # (previously, we were saving the entire tile class in the World.terrain dictionary,
+    # which was slow and resource-intensive). Now, we save just the ID of each tile, and
+    # then when we want to load the game, it takes that list of IDs and reconstructs
+    # it into a dictionary like before. I know, I know, it's not the most elegant
+    # solution for now, rebuilding the classes for each tile in a massive world
+    # is somewhat slow, but this way, I can avoid using Gzip :)
 
-    # Yeah, this uses Gzip, it make all a bit slow, but its OK
+
+    @staticmethod
+    def get_tile(id: int) -> str:
+        for name, tile in tiles.items():
+            if tile.id == id:
+                return name
+        raise ValueError(f"No tile found with ID {id}")
+
 
     @staticmethod
     def save_world() -> None:
+        terrain = {
+            chunk: [[tile.id for tile in row] for row in chunk_data]
+            for chunk, chunk_data in World.terrain.items()
+        }
+
         world_data = {
             'About': {
                 'name': "A Nice World"
@@ -847,31 +828,31 @@ class Saveload:
             'Player': {
                 'x': Player.x,
                 'y': Player.y,
-                'energy': Player.energy,
                 'health': Player.health,
+                'energy': Player.energy,
                 'facing': Player.facing
             },
             'WorldSeed': World.seed,
             'WorldPerm': World.perm,
             'WorldSpawn': World.spawn,
             'GameTime': Updater.time,
-            'Terrain': World.terrain
+            'Terrain': terrain
         }
 
-        with gzip.open('./saves/world.dat', 'wb') as file:
+        with open('./saves/world.dat', 'wb') as file:
             pickle.dump(world_data, file, protocol=5)
 
 
     @staticmethod
     def load_world() -> None:
-        with gzip.open('./saves/world.dat', 'rb') as file:
+        with open('./saves/world.dat', 'rb') as file:
             world_data = pickle.load(file)
 
         player_data = world_data['Player']
         Player.x = player_data['x']
         Player.y = player_data['y']
-        Player.energy = player_data['energy']
         Player.health = player_data['health']
+        Player.energy = player_data['energy']
         Player.facing = player_data['facing']
 
         World.seed = world_data['WorldSeed']
@@ -879,7 +860,14 @@ class Saveload:
         World.spawn = world_data['WorldSpawn']
         Updater.time = world_data['GameTime']
 
-        World.terrain = world_data['Terrain']
+        terrain = world_data['Terrain']
+
+        World.terrain = {
+            chunk: [
+                [tiles[Saveload.get_tile(tile_id)].clone() for tile_id in row] for row in chunk_data
+            ]
+            for chunk, chunk_data in terrain.items()
+        }
 
         World.initialized = True
 
@@ -926,14 +914,14 @@ def main() -> None:
             else:
                 title_menu.render()
 
-        if time() - last_timer > 1:
+        if (time() - last_timer) > 1:
             last_timer += 1
 
             print(
                 f"- FPS: {clock.get_fps():.1f} "
                 f"({ticks} TPS) "
-            #    f"({World.daytime()} daytime) "
-            #    f"({World.daylight()} daylight)"
+                f"({World.daytime()} daytime) "
+                f"({World.daylight()} daylight)"
             )
 
             ticks = 0
