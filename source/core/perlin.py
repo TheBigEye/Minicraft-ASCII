@@ -1,11 +1,12 @@
 from math import floor
 from random import shuffle
 
-class Generator:
+
+class Perlin:
     """ My simple and fast "perlin noise" implementation :D """
 
     @staticmethod
-    def perlin(p: list, x: float, y: float, persistence: float, octaves: int) -> float:
+    def heightmap(p: list, x: float, y: float, persistence: float, octaves: int) -> float:
         """
             Generates a Perlin noise height value
 
@@ -21,13 +22,13 @@ class Generator:
         """
 
         total: float = 0
-        frequency: float = 2.18  # Initial frequency
+        frequency: float = 1.20  # Initial frequency
         amplitude: float = 1.00  # Initial amplitude
         max_value: float = 0  # Used for normalizing result to 0.0 - 1.0
 
         # Sum the noise contributions for each octave
         for _ in range(octaves):
-            total += Generator.noise(p, x * frequency, y * frequency) * amplitude
+            total += Perlin.noise(p, x * frequency, y * frequency) * amplitude
             max_value += amplitude
             amplitude *= persistence  # Reduce amplitude for subsequent octaves
             frequency *= 2.1  # Increase frequency for subsequent octaves (lacunarity)
@@ -53,15 +54,15 @@ class Generator:
         """
 
         total: float = 0
-        frequency: float = 1.5  # Initial frequency
+        frequency: float = 1.50  # Initial frequency
         amplitude: float = 1.00  # Initial amplitude
         max_value: float = 0  # Used for normalizing the result
 
         # Sum the noise contributions for each octave
         for _ in range(octaves):
-            total += Generator.noise(p, x * frequency, y * frequency) * amplitude
+            total += Perlin.noise(p, x * frequency, y * frequency) * amplitude
             max_value += amplitude
-            amplitude *= persistence  # Reduce amplitude for subsequent octaves
+            amplitude *= persistence # Reduce amplitude for subsequent octaves
             frequency *= 2.05 # Increase frequency for subsequent octaves (lacunarity)
 
         # Normalize the result to be within the range [-1, 1]
@@ -85,19 +86,19 @@ class Generator:
         """
 
         total: float = 0
-        frequency: float = 3.2  # Initial frequency
+        frequency: float = 3.20  # Initial frequency
         amplitude: float = 1.00  # Initial amplitude
         max_value: float = 0  # Used for normalizing the result
 
         # Sum the noise contributions for each octave
         for _ in range(octaves):
-            total += Generator.noise(p, x * frequency, y * frequency) * amplitude
+            total += Perlin.noise(p, x * frequency, y * frequency) * amplitude
             max_value += amplitude
-            amplitude *= persistence  # Reduce amplitude for subsequent octaves
+            amplitude *= persistence # Reduce amplitude for subsequent octaves
             frequency *= 2.15  # Increase frequency for subsequent octaves (lacunarity)
 
-        # Normalize the result to be within the range [-1, 1]
-        return total / max_value
+        # Invert the normalized value and shift it to be within [0, 1]
+        return (1 - ((total / max_value) + 1) / 2)
 
 
     @staticmethod
@@ -123,22 +124,22 @@ class Generator:
         y -= floor(y)
 
         # Apply fade function to smooth the interpolation
-        u: float = Generator.fade(x)
-        v: float = Generator.fade(y)
+        u: float = Perlin.fade(x)
+        v: float = Perlin.fade(y)
 
         # Calculate the hash values for the four corners of the cell
         A: int = p[X] + Y
         B: int = p[X + 1] + Y
 
         # Perform bilinear interpolation and calculate the gradient contributions
-        n: float = Generator.lerp(v,
-            Generator.lerp(u,
-                Generator.grad(p[A], x, y),
-                Generator.grad(p[B], x - 1, y)
+        n: float = Perlin.lerp(v,
+            Perlin.lerp(u,
+                Perlin.grad(p[A], x, y),
+                Perlin.grad(p[B], x - 1, y)
             ),
-            Generator.lerp(u,
-                Generator.grad(p[A + 1], x, y - 1),
-                Generator.grad(p[B + 1], x - 1, y - 1)
+            Perlin.lerp(u,
+                Perlin.grad(p[A + 1], x, y - 1),
+                Perlin.grad(p[B + 1], x - 1, y - 1)
             )
         )
 

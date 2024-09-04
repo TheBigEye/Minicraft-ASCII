@@ -1,7 +1,6 @@
-import pygame
 
 """ The gamelay speed is dependent for this """
-FRAMES_PER_SEC: int = 30 + 1
+GAME_TICKS: int = 30.0
 
 SCREEN_FULL_W: int = 768
 SCREEN_FULL_H: int = 512
@@ -23,16 +22,6 @@ CHUNK_SIZE: int = 8
     The higher it is, the smaller the terrain will look, and if
     it's lower, the terrain will appear larger and more expansive.
 """
-TERRAIN_SCALE: float = 0.0018
+TERRAIN_SCALE: float = 0.0017
 TERRAIN_PERSISTENCE: float = 0.46
 TERRAIN_OCTAVES: int = 8
-
-
-""" Player max health """
-PLAYER_MAX_HEALTH: int = 20
-
-""" Player max stamina """
-PLAYER_MAX_ENERGY: int = 20
-
-""" Player max hunger """
-PLAYER_MAX_HUNGER: int = 20
